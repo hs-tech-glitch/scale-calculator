@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>아날로그 스케일 변환 계산기</title>
+<!-- v1.1 (2026-10-14): 홈 화면 앱 아이콘. 같은 폴더(Netlify)에 scale-calculator.webmanifest · icon-scale-192.png · icon-scale-512.png 같이 올림. (받은 원본을 v1.0으로 봄) -->
+<meta name="theme-color" content="#161b26">
+<link rel="manifest" href="scale-calculator.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-scale-192.png">
+<link rel="apple-touch-icon" href="icon-scale-192.png">
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --line:#e3e6ec; --ink:#1c2330;
+    --muted:#6b7480; --accent:#2f6bff;
+    --result:#161b26; --resultLine:#2b3242; --good:#37d67a; --warn:#ffb020;
+    --hero:#eef3ff; --heroLine:#cfe0ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Malgun Gothic",system-ui,sans-serif;
+    padding:16px;line-height:1.5}
+  .wrap{max-width:520px;margin:0 auto}
+  h1{font-size:22px;font-weight:800;margin:4px 0 16px}
+  .panel{background:var(--card);border:1px solid var(--line);
+    border-radius:14px;padding:18px 16px}
+  .panel-head b{font-size:15px}
+  .panel-head span{display:block;font-size:12.5px;color:var(--muted);margin-top:2px}
+  .panel-head{margin-bottom:16px}
+
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+  select,input{width:100%;height:48px;padding:0 13px;font-size:16px;
+    border:1px solid var(--line);border-radius:10px;background:#fbfcfe;
+    color:var(--ink);outline:none;-webkit-appearance:none}
+  input:focus,select:focus{border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(47,107,255,.15)}
+
+  /* 현재 신호값: 강조된 히어로 입력 */
+  .hero-input{background:var(--hero);border:1px solid var(--heroLine);
+    border-radius:12px;padding:14px;margin-bottom:16px}
+  .hero-input label{font-size:13px;color:#33507f;margin-bottom:8px}
+  .hero-input input{height:60px;font-size:26px;font-weight:800;
+    background:#fff;border-color:var(--heroLine);text-align:center}
+
+  .row{margin-bottom:14px}
+  /* 최소/최대 한 쌍을 한 줄에 (모바일에서도 2칸 유지) */
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .group-title{font-size:12px;font-weight:700;color:var(--muted);
+    margin:2px 0 8px;letter-spacing:.2px}
+  .group{background:#f9fafc;border:1px solid var(--line);
+    border-radius:11px;padding:12px;margin-bottom:14px}
+  .group label{font-size:12px;color:var(--muted)}
+
+  /* 부호 토글이 붙는 숫자 입력 (왼쪽 ± 버튼, 값 가운데) */
+  .signed{position:relative}
+  .signed input{padding-left:46px;padding-right:46px;text-align:center}
+  .sign-btn{position:absolute;top:0;left:0;height:100%;width:42px;border:0;
+    border-right:1px solid var(--line);background:#eef0f4;color:var(--ink);
+    font-size:20px;font-weight:800;border-radius:10px 0 0 10px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;-webkit-appearance:none}
+  .sign-btn:active{background:#e0e3e9}
+  .sign-btn.pos{color:#1f8f4d;background:#e8f6ee}
+  .sign-btn.neg{color:#d64545;background:#fdecec}
+  .hero-input .sign-btn.pos{background:#e8f6ee}
+  .hero-input .sign-btn.neg{background:#fdecec}
+  .hero-input .signed input{padding-left:56px;padding-right:56px}
+  .hero-input .sign-btn{width:52px;font-size:24px;border-right-color:var(--heroLine);background:#e6eeff}
+  .note{font-size:12px;color:var(--muted);margin-top:6px}
+  .btn{width:100%;margin:6px 0 16px;border:0;background:var(--result);color:#fff;
+    font-size:16px;font-weight:700;padding:15px;border-radius:12px;cursor:pointer}
+  .btn:active{background:#0c1017}
+
+  .out{background:var(--result);color:#fff;border-radius:14px;padding:20px 18px}
+  .out h2{margin:0;font-size:20px;font-weight:800}
+  .out h2 .big{color:var(--good)}
+  .out .sub{color:#9aa4b4;font-size:13px;margin:6px 0 16px}
+
+  /* 신호 위치 바 */
+  .bar-wrap{margin:0 0 16px}
+  .bar-top{display:flex;justify-content:space-between;font-size:11px;color:#9aa4b4;margin-bottom:6px}
+  .bar{position:relative;height:10px;background:#2a3141;border-radius:6px;overflow:hidden}
+  .bar-fill{position:absolute;left:0;top:0;bottom:0;background:var(--good);border-radius:6px;transition:width .2s}
+  .bar-fill.over{background:var(--warn)}
+
+  .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{background:#1e2431;border:1px solid var(--resultLine);border-radius:11px;padding:13px}
+  .stat .k{font-size:12px;color:#9aa4b4}
+  .stat .v{font-size:19px;font-weight:800;margin:4px 0 2px}
+  .stat .d{font-size:11px;color:#7c8598}
+
+  .flow-box{background:#1e2431;border:1px solid var(--resultLine);border-radius:11px;padding:14px;margin-top:14px}
+  .flow-title{font-size:12.5px;font-weight:700;margin-bottom:12px}
+  .flow{display:grid;grid-template-columns:1fr;gap:8px}
+  .flow .step{background:#161b26;border:1px solid var(--resultLine);border-radius:9px;padding:11px 13px;
+    display:flex;justify-content:space-between;align-items:center}
+  .flow .step .k{font-size:12px;color:#9aa4b4}
+  .flow .step .v{font-size:16px;font-weight:800}
+  .flow .arw{color:#7c8598;font-size:16px;text-align:center;transform:rotate(90deg)}
+
+  .badge-in{color:var(--good)} .badge-out{color:var(--warn)}
+  .disc{background:#1e2431;border:1px solid var(--resultLine);border-radius:11px;
+    padding:12px 13px;margin-top:14px;font-size:12px;color:#9aa4b4}
+
+  /* 데스크탑에서 살짝 넓게 */
+  @media(min-width:560px){
+    body{padding:24px}
+    .wrap{max-width:560px}
+    .flow{grid-template-columns:1fr auto 1fr auto 1fr;align-items:center}
+    .flow .step{flex-direction:column;align-items:flex-start;gap:2px}
+    .flow .arw{transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>아날로그 스케일 변환</h1>
+
+  <div class="panel">
+    <div class="panel-head">
+      <b>신호값을 넣고 계산하세요</b>
+      <span>아날로그 신호를 실제 공정값으로 참고 변환해요.</span>
+    </div>
+
+    <!-- 현재 신호값: 최상단 강조 -->
+    <div class="hero-input">
+      <label id="curLabel">현재 신호값 (아날로그)</label>
+      <div class="signed">
+        <input id="cur" type="text" inputmode="decimal" value="+12">
+        <button type="button" class="sign-btn" data-for="cur">±</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>입력 모드</label>
+      <select id="mode">
+        <option value="4-20">4-20 mA (2선식 표준)</option>
+        <option value="0-20">0-20 mA</option>
+        <option value="0-10">0-10 V</option>
+        <option value="1-5">1-5 V</option>
+        <option value="0-5">0-5 V</option>
+        <option value="-10-10">±10 V (-10~10 V)</option>
+        <option value="0-24">0-24 V</option>
+        <option value="2-10">2-10 V</option>
+        <option value="custom">직접 입력</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label>계산 방향</label>
+      <select id="dir">
+        <option value="fwd">신호값 → 공정값</option>
+        <option value="rev">공정값 → 신호값</option>
+      </select>
+    </div>
+
+    <!-- 신호 범위 그룹 -->
+    <div class="group">
+      <div class="group-title">신호 범위 (아날로그)</div>
+      <div class="pair">
+        <div><label>최소값</label><div class="signed"><input id="inMin" type="text" inputmode="decimal" value="+4"><button type="button" class="sign-btn" data-for="inMin">±</button></div></div>
+        <div><label>최대값</label><div class="signed"><input id="inMax" type="text" inputmode="decimal" value="+20"><button type="button" class="sign-btn" data-for="inMax">±</button></div></div>
+      </div>
+    </div>
+
+    <!-- 공정 범위 그룹 -->
+    <div class="group">
+      <div class="group-title">공정 범위 (실제값)</div>
+      <div class="pair">
+        <div><label>최소값</label><div class="signed"><input id="outMin" type="text" inputmode="decimal" value="+0"><button type="button" class="sign-btn" data-for="outMin">±</button></div></div>
+        <div><label>최대값</label><div class="signed"><input id="outMax" type="text" inputmode="decimal" value="+100"><button type="button" class="sign-btn" data-for="outMax">±</button></div></div>
+      </div>
+    </div>
+
+    <div class="note">계측기 설정, 센서 범위, PLC 스케일 설정에 따라 실제 적용값은 달라질 수 있어요.</div>
+  </div>
+
+  <button class="btn" id="calcBtn">스케일 변환</button>
+
+  <div class="out" id="out"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const modeRanges = {
+  "4-20":[4,20],"0-20":[0,20],"0-10":[0,10],"1-5":[1,5],
+  "0-5":[0,5],"-10-10":[-10,10],"0-24":[0,24],"2-10":[2,10]
+};
+const modeUnit = {
+  "4-20":"mA","0-20":"mA","0-10":"V","1-5":"V","0-5":"V",
+  "-10-10":"V","0-24":"V","2-10":"V","custom":""
+};
+
+function applyMode(){
+  const m=$("mode").value;
+  if(modeRanges[m]){ $("inMin").value=fmtSigned(modeRanges[m][0]); $("inMax").value=fmtSigned(modeRanges[m][1]); }
+}
+function dirLabel(){
+  $("curLabel").textContent = $("dir").value==="fwd" ? "현재 신호값 (아날로그)" : "현재 공정값";
+}
+function fmt(n){
+  if(!isFinite(n)) return "-";
+  return Math.abs(n)>=1000 ? n.toFixed(1) : Math.round(n*1000)/1000+"";
+}
+
+function calc(){
+  const iMin=valOf("inMin"),iMax=valOf("inMax");
+  const oMin=valOf("outMin"),oMax=valOf("outMax");
+  const dir=$("dir").value, cur=valOf("cur");
+  const rawUnit=modeUnit[$("mode").value]||"";
+
+  if(iMin===iMax || oMin===oMax){
+    $("out").innerHTML='<h2>범위 설정을 확인해 주세요.</h2>'+
+      '<div class="sub">최소값과 최대값이 같으면 변환할 수 없어요.</div>';
+    return;
+  }
+
+  let inVal,outVal,pct;
+  if(dir==="fwd"){ inVal=cur; pct=(cur-iMin)/(iMax-iMin); outVal=oMin+pct*(oMax-oMin); }
+  else{ outVal=cur; pct=(cur-oMin)/(oMax-oMin); inVal=iMin+pct*(iMax-iMin); }
+
+  const inRange = pct>=0 && pct<=1;
+  const pctNum = pct*100;
+  const pctTxt=pctNum.toFixed(0)+"%";
+  const barW = Math.max(0, Math.min(100, pctNum));
+  const fwd = dir==="fwd";
+
+  // 방향에 따라 결과의 주인공이 달라짐
+  const headline = fwd
+    ? '<h2>공정값은 약 <span class="big">'+fmt(outVal)+'</span>예요.</h2>'
+    : '<h2>필요한 신호값은 약 <span class="big">'+fmt(inVal)+' '+rawUnit+'</span>예요.</h2>';
+  const sub = fwd
+    ? '<div class="sub">신호값 '+fmt(inVal)+' '+rawUnit+' 을(를) 공정값으로 환산했어요.</div>'
+    : '<div class="sub">공정값 '+fmt(outVal)+' 을(를) 내려면 필요한 신호값을 역산했어요.</div>';
+
+  // 결과 카드: 방향에 따라 주 결과 카드가 바뀜
+  const mainCard = fwd
+    ? '<div class="stat"><div class="k">환산 공정값</div><div class="v">'+fmt(outVal)+'</div><div class="d">선형 스케일 기준</div></div>'
+    : '<div class="stat"><div class="k">환산 신호값</div><div class="v">'+fmt(inVal)+' '+rawUnit+'</div><div class="d">선형 스케일 기준</div></div>';
+  const subCard = fwd
+    ? '<div class="stat"><div class="k">공정값 범위</div><div class="v">'+fmt(oMin)+' ~ '+fmt(oMax)+'</div><div class="d">신호 기준</div></div>'
+    : '<div class="stat"><div class="k">신호 범위</div><div class="v">'+fmt(iMin)+' ~ '+fmt(iMax)+' '+rawUnit+'</div><div class="d">공정 기준</div></div>';
+
+  // 변환 흐름: 방향에 따라 화살표 순서가 뒤집힘
+  const flow = fwd
+    ? '<div class="step"><span class="k">신호값</span><span class="v">'+fmt(inVal)+' '+rawUnit+'</span></div>'+
+      '<div class="arw">&rarr;</div>'+
+      '<div class="step"><span class="k">스팬 위치</span><span class="v">'+pctTxt+'</span></div>'+
+      '<div class="arw">&rarr;</div>'+
+      '<div class="step"><span class="k">공정값</span><span class="v">'+fmt(outVal)+'</span></div>'
+    : '<div class="step"><span class="k">공정값</span><span class="v">'+fmt(outVal)+'</span></div>'+
+      '<div class="arw">&rarr;</div>'+
+      '<div class="step"><span class="k">스팬 위치</span><span class="v">'+pctTxt+'</span></div>'+
+      '<div class="arw">&rarr;</div>'+
+      '<div class="step"><span class="k">신호값</span><span class="v">'+fmt(inVal)+' '+rawUnit+'</span></div>';
+
+  $("out").innerHTML =
+    headline + sub +
+    '<div class="bar-wrap">'+
+      '<div class="bar-top"><span>'+fmt(iMin)+' '+rawUnit+'</span><span>신호 위치 '+pctTxt+'</span><span>'+fmt(iMax)+' '+rawUnit+'</span></div>'+
+      '<div class="bar"><div class="bar-fill'+(inRange?"":" over")+'" style="width:'+barW+'%"></div></div>'+
+    '</div>'+
+    '<div class="stats">'+
+      mainCard +
+      '<div class="stat"><div class="k">신호 위치</div><div class="v">'+pctTxt+'</div><div class="d">신호 범위 내 비율</div></div>'+
+      '<div class="stat"><div class="k">입력 상태</div><div class="v '+(inRange?"badge-in":"badge-out")+'">'+(inRange?"범위 안":"범위 벗어남")+'</div><div class="d">'+fmt(iMin)+' ~ '+fmt(iMax)+' '+rawUnit+'</div></div>'+
+      subCard +
+    '</div>'+
+    '<div class="flow-box">'+
+      '<div class="flow-title">스케일 변환 흐름</div>'+
+      '<div class="flow">'+ flow +'</div>'+
+    '</div>'+
+    '<div class="disc">'+(fwd?'신호값':'공정값')+' 기준의 현장 참고 계산이에요. 실제 적용 전에는 센서 범위, PLC 카드 설정, HMI 스케일, 장비 매뉴얼을 확인해 주세요.</div>';
+}
+
+$("mode").addEventListener("change",function(){applyMode();calc();});
+$("dir").addEventListener("change",function(){dirLabel();calc();});
+["inMin","inMax","cur","outMin","outMax"].forEach(function(id){
+  var el=$(id);
+  el.addEventListener("input",calc);
+  el.addEventListener("blur",function(){ el.value=fmtSigned(valOf(id)); });
+});
+$("calcBtn").addEventListener("click",calc);
+
+
+// 숫자에서 부호 포함 문자열로 정규화 (+4 / -10 형태로 항상 표시)
+function fmtSigned(v){
+  if(isNaN(v)) return "+0";
+  var a=Math.abs(v);
+  // 불필요한 소수 자릿수 정리 (부동소수 오차 제거)
+  a=Math.round(a*1e6)/1e6;
+  return (v<0 ? "\u2212" : "+") + a;
+}
+// 입력 문자열을 숫자로 (− 기호와 + 기호 처리)
+window.valOf = function(id){
+  var raw=document.getElementById(id).value.replace(/\u2212/g,'-').replace(/\s/g,'');
+  var n=parseFloat(raw);
+  return isNaN(n)?0:n;
+};
+// ± 버튼: 부호 뒤집기
+function paintSign(btn,id){
+  var neg=valOf(id)<0;
+  btn.classList.toggle('neg',neg);
+  btn.classList.toggle('pos',!neg);
+}
+document.querySelectorAll('.sign-btn').forEach(function(btn){
+  var id=btn.getAttribute('data-for');
+  var inp=document.getElementById(id);
+  btn.textContent='\u00B1'; // ±
+  paintSign(btn,id);
+  btn.addEventListener('click',function(){
+    var v=valOf(id);
+    inp.value=fmtSigned(-v);
+    paintSign(btn,id);
+    calc();
+  });
+  inp.addEventListener('input',function(){ paintSign(btn,id); });
+  inp.addEventListener('blur',function(){ paintSign(btn,id); });
+});
+
+dirLabel(); calc();
+</script>
+</body>
+</html>
