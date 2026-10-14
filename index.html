@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>아날로그 스케일 변환 계산기</title>
+<!-- v1.2 (2026-10-14): 비교 카드 + 화면 최적화.
+     · 계산 카드를 최대 4개까지 나란히(넓은 화면은 옆으로, 폰은 위아래) — ＋ 비교 추가 / ⧉ 복제 / ✕ 삭제
+     · '현재값 맞추기' 켜면 같은 방향 카드끼리 현재값이 같이 움직임 (같은 mA를 여러 스케일로 비교)
+     · 결과 영역 압축: 큰 결과 + 위치 바 + 범위 안/벗어남 한 줄 (중복 카드·흐름도 제거), 입력하면 바로 계산(변환 버튼 없앰)
+     · 카드가 2개 이상이면 범위·방향 설정은 접어서 한 줄 요약(누르면 펼침) — 폰 한 화면에 두 카드 결과가 같이 보이게
+     · 공정값 단위 칸 추가(°C, %RH …), 카드 이름 칸, 마지막 설정을 이 기기에 기억
+     v1.1: 홈 화면 앱 아이콘(manifest·아이콘 같이 올림). 받은 원본을 v1.0으로 봄 -->
+<meta name="theme-color" content="#161b26">
+<link rel="manifest" href="scale-calculator.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-scale-192.png">
+<link rel="apple-touch-icon" href="icon-scale-192.png">
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --line:#e3e6ec; --ink:#1c2330;
+    --muted:#6b7480; --accent:#2f6bff;
+    --result:#161b26; --resultLine:#2b3242; --good:#37d67a; --warn:#ffb020;
+    --hero:#eef3ff; --heroLine:#cfe0ff;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI","Malgun Gothic",system-ui,sans-serif;
+    padding:12px 12px calc(16px + env(safe-area-inset-bottom));line-height:1.45}
+  .wrap{max-width:1400px;margin:0 auto}
+
+  /* 상단 줄 */
+  .top{display:flex;align-items:center;gap:6px;margin:2px 0 12px}
+  .top h1{font-size:18px;font-weight:800;margin:0;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .top .lg{display:none}
+  .tbtn{height:36px;padding:0 11px;flex:none;white-space:nowrap;border-radius:10px;border:1px solid var(--line);background:#fff;
+    font-size:14px;font-weight:700;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+    -webkit-appearance:none;font-family:inherit}
+  .tbtn.add{background:var(--result);color:#fff;border-color:var(--result)}
+  .tbtn.add:disabled{opacity:.35}
+  .tbtn.sync.on{background:#e8f6ee;border-color:#9fdcb6;color:#1f8f4d}
+
+  /* 카드 격자: 넓으면 옆으로, 좁으면 위아래 */
+  .cards{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+  .cards.n1{max-width:560px;margin:0 auto}
+  .cards.n1 .rm{display:none}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .ch{display:flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .lbl{flex:1;min-width:0;height:34px;border:1px solid transparent;border-radius:8px;padding:0 8px;
+    font-size:15px;font-weight:800;color:var(--ink);background:transparent;outline:none;font-family:inherit}
+  .lbl:focus{border-color:var(--line);background:#fbfcfe}
+  .ic{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:#fff;color:var(--muted);
+    font-size:15px;cursor:pointer;display:grid;place-items:center;-webkit-appearance:none;flex:none}
+  .ic:active{background:#eef0f4}
+
+  /* 방향 토글 */
+  .seg{display:grid;grid-template-columns:1fr 1fr;background:#eef0f4;border-radius:10px;padding:3px;gap:3px}
+  .seg button{height:34px;border:0;border-radius:8px;background:transparent;font-size:13.5px;font-weight:700;
+    color:var(--muted);cursor:pointer;font-family:inherit;-webkit-appearance:none}
+  .seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+
+  /* 입력 공통 */
+  select,input{font-family:inherit;color:var(--ink);outline:none;-webkit-appearance:none}
+  .fld{width:100%;height:42px;padding:0 10px;font-size:16px;border:1px solid var(--line);border-radius:10px;background:#fbfcfe}
+  .fld:focus,.signed input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,107,255,.15)}
+
+  /* 부호 토글이 붙는 숫자 입력 (왼쪽 ± 버튼) */
+  .signed{position:relative;min-width:0}
+  .signed input{width:100%;height:42px;font-size:16px;border:1px solid var(--line);border-radius:10px;background:#fbfcfe;
+    padding:0 6px 0 40px;text-align:center}
+  .sign-btn{position:absolute;top:0;left:0;height:100%;width:34px;border:0;border-right:1px solid var(--line);
+    background:#eef0f4;color:var(--ink);font-size:17px;font-weight:800;border-radius:10px 0 0 10px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;-webkit-appearance:none}
+  .sign-btn.pos{color:#1f8f4d;background:#e8f6ee}
+  .sign-btn.neg{color:#d64545;background:#fdecec}
+
+  /* 현재값 (강조) */
+  .hero{background:var(--hero);border:1px solid var(--heroLine);border-radius:12px;padding:10px}
+  .hero .cap{font-size:12.5px;font-weight:700;color:#33507f;margin-bottom:6px;display:flex;justify-content:space-between}
+  .hero .cap em{font-style:normal;color:#1f8f4d;font-weight:700}
+  .hero .signed input{height:54px;font-size:25px;font-weight:800;background:#fff;border-color:var(--heroLine);padding-left:52px}
+  .hero .sign-btn{width:46px;font-size:22px;border-right-color:var(--heroLine)}
+
+  /* 범위 줄 */
+  .rg{display:grid;grid-template-columns:44px 1fr;gap:8px 8px;align-items:center}
+  .rg .rl{font-size:12.5px;font-weight:700;color:var(--muted)}
+  .pair{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) 62px;gap:5px;align-items:center}
+  .pair .til{color:var(--muted);font-size:13px}
+  .pair .u{font-size:13px;color:var(--muted);text-align:center}
+  .unit{width:100%;height:42px;padding:0 6px;font-size:14px;border:1px solid var(--line);border-radius:10px;background:#fbfcfe;text-align:center}
+
+  /* 결과 (압축) */
+  .res{background:var(--result);color:#fff;border-radius:12px;padding:12px 13px}
+  .rv{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+  .rv small{font-size:12.5px;color:#9aa4b4;width:100%}
+  .rv b{font-size:30px;font-weight:800;color:var(--good);letter-spacing:-.5px;line-height:1.15;word-break:break-all}
+  .rv .ru{font-size:15px;color:#cfd6e2;font-weight:700}
+  .rv .st{margin-left:auto;font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;background:#1f3a2c;color:var(--good);align-self:center}
+  .rv .st.out{background:#3d3018;color:var(--warn)}
+  .res.out .rv b{color:var(--warn)}
+  .bar{position:relative;height:8px;background:#2a3141;border-radius:6px;overflow:hidden;margin:10px 0 5px}
+  .bar i{position:absolute;left:0;top:0;bottom:0;background:var(--good);border-radius:6px;transition:width .15s}
+  .res.out .bar i{background:var(--warn)}
+  .bt{display:flex;justify-content:space-between;font-size:11.5px;color:#9aa4b4;gap:6px}
+  .bt span:nth-child(2){color:#fff;font-weight:700}
+  .err{font-size:14px;font-weight:700;color:var(--warn)}
+
+  .note{font-size:11.5px;color:var(--muted);margin:12px 4px 0;text-align:center}
+
+  /* 범위 요약 (접힌 상태) */
+  .sum{display:flex;align-items:center;gap:8px;width:100%;min-height:38px;border:1px dashed var(--line);border-radius:10px;
+    background:#fbfcfe;padding:6px 10px;font-size:13.5px;color:var(--ink);cursor:pointer;font-family:inherit;text-align:left;-webkit-appearance:none}
+  .sum b{font-weight:700}
+  .sum .dir{color:var(--muted);font-size:12.5px}
+  .sum .gear{margin-left:auto;color:var(--muted);font-size:12.5px;white-space:nowrap}
+  .set{display:flex;flex-direction:column;gap:10px}
+  .fold{align-self:flex-end;border:0;background:none;color:var(--muted);font-size:12.5px;cursor:pointer;padding:0 2px;font-family:inherit}
+
+  @media(min-width:700px){
+    body{padding:18px 20px}
+    .top h1{font-size:21px}
+    .top .lg{display:inline}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>아날로그 스케일 변환</h1>
+    <button type="button" class="tbtn sync" id="syncBtn" title="켜면 같은 방향 카드끼리 현재값이 같이 움직여요">🔗 <span class="lg">현재값 </span>맞추기</button>
+    <button type="button" class="tbtn add" id="addBtn">＋ 비교<span class="lg"> 추가</span></button>
+  </div>
+  <div class="cards" id="cards"></div>
+  <div class="note">현장 참고용 선형 계산이에요. 실제 적용 전 센서 범위·PLC 카드 설정·HMI 스케일·장비 매뉴얼을 확인해 주세요.</div>
+</div>
+
+<script>
+var MODES=[["4-20","4-20 mA (2선식 표준)",4,20,"mA"],["0-20","0-20 mA",0,20,"mA"],["0-10","0-10 V",0,10,"V"],["1-5","1-5 V",1,5,"V"],["0-5","0-5 V",0,5,"V"],["-10-10","±10 V (-10~10 V)",-10,10,"V"],["0-24","0-24 V",0,24,"V"],["2-10","2-10 V",2,10,"V"],["custom","직접 입력",null,null,""]];
+var MODE={};MODES.forEach(function(m){MODE[m[0]]={label:m[1],min:m[2],max:m[3],unit:m[4]}});
+var COLORS=["#2f6bff","#f08a24","#1fa463","#9b51e0"];
+var NAMES=["A","B","C","D"];
+var MAX=4, KEY="scale_calc_v12";
+
+function defCard(i){return {label:NAMES[i]||"",mode:"4-20",dir:"fwd",cur:12,inMin:4,inMax:20,outMin:0,outMax:100,unit:""}}
+var S={cards:[defCard(0)],sync:false};
+try{var saved=JSON.parse(localStorage.getItem(KEY)||"null");if(saved&&saved.cards&&saved.cards.length)S=saved}catch(e){}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+
+// 숫자 ↔ 부호 포함 문자열 (+4 / −10)
+function fmtSigned(v){if(!isFinite(v))return "+0";var a=Math.round(Math.abs(v)*1e6)/1e6;return (v<0?"−":"+")+a}
+function num(s){var n=parseFloat(String(s).replace(/−/g,"-").replace(/[,\s]/g,""));return isNaN(n)?0:n}
+function fmt(n){if(!isFinite(n))return "-";return Math.abs(n)>=1000?n.toFixed(1):String(Math.round(n*1000)/1000)}
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+
+function signed(k,v,cls){return '<div class="signed'+(cls?' '+cls:'')+'"><input type="text" inputmode="decimal" data-k="'+k+'" value="'+fmtSigned(v)+'"><button type="button" class="sign-btn" data-for="'+k+'">±</button></div>'}
+
+function render(){
+  var box=document.getElementById("cards");box.innerHTML="";
+  box.className="cards n"+S.cards.length;
+  S.cards.forEach(function(c,i){box.appendChild(cardEl(c,i))});
+  document.getElementById("addBtn").disabled=S.cards.length>=MAX;
+  document.getElementById("syncBtn").classList.toggle("on",!!S.sync);
+  document.getElementById("syncBtn").style.display=S.cards.length>1?"":"none";
+}
+
+function cardEl(c,i){
+  var el=document.createElement("section");el.className="card";
+  var fwd=c.dir==="fwd",mu=MODE[c.mode]?MODE[c.mode].unit:"",multi=S.cards.length>1,open=!multi||!!c.open;
+  el.innerHTML=
+    '<div class="ch"><span class="dot" style="background:'+COLORS[i%COLORS.length]+'"></span>'+
+      '<input class="lbl" data-k="label" maxlength="16" placeholder="이름 (예: 온도)" value="'+esc(c.label)+'">'+
+      '<button type="button" class="ic dup" title="이 카드 복제해서 비교">⧉</button>'+
+      '<button type="button" class="ic rm" title="카드 삭제">✕</button></div>'+
+    '<div class="hero"><div class="cap"><span>'+(fwd?'현재 신호값'+(mu?' ('+mu+')':''):'현재 공정값'+(c.unit?' ('+esc(c.unit)+')':''))+'</span>'+(S.sync&&S.cards.length>1?'<em>🔗 맞춤</em>':'')+'</div>'+signed("cur",c.cur)+'</div>'+
+    (open?'<div class="set"><div class="seg"><button type="button" data-d="fwd" class="'+(fwd?'on':'')+'">신호 → 공정</button><button type="button" data-d="rev" class="'+(fwd?'':'on')+'">공정 → 신호</button></div>':
+      '<button type="button" class="sum"><span><b>'+fmt(c.inMin)+'~'+fmt(c.inMax)+' '+esc(mu)+'</b> <span class="dir">'+(fwd?'→':'←')+'</span> <b>'+fmt(c.outMin)+'~'+fmt(c.outMax)+' '+esc(c.unit)+'</b></span><span class="gear">⚙ 범위·방향</span></button>')+
+    (open?'<div class="rg">'+
+      '<span class="rl">신호</span><select class="fld" data-k="mode">'+MODES.map(function(m){return '<option value="'+m[0]+'"'+(m[0]===c.mode?' selected':'')+'>'+m[1]+'</option>'}).join("")+'</select>'+
+      '<span class="rl"></span><div class="pair">'+signed("inMin",c.inMin)+'<span class="til">~</span>'+signed("inMax",c.inMax)+'<span class="u">'+(mu||'신호')+'</span></div>'+
+      '<span class="rl">공정</span><div class="pair">'+signed("outMin",c.outMin)+'<span class="til">~</span>'+signed("outMax",c.outMax)+'<input class="unit" data-k="unit" maxlength="8" placeholder="단위" value="'+esc(c.unit)+'"></div>'+
+    '</div>'+(multi?'<button type="button" class="fold">▲ 접기</button>':'')+'</div>':'')+
+    '<div class="res"></div>';
+  wire(el,c,i);calc(el,c);
+  return el;
+}
+
+function calc(el,c){
+  var res=el.querySelector(".res"),fwd=c.dir==="fwd",mu=MODE[c.mode]?MODE[c.mode].unit:"";
+  if(c.inMin===c.inMax||c.outMin===c.outMax){res.className="res out";res.innerHTML='<div class="err">범위를 확인해 주세요 — 최소값과 최대값이 같아요.</div>';return}
+  var pct,inV,outV;
+  if(fwd){inV=c.cur;pct=(c.cur-c.inMin)/(c.inMax-c.inMin);outV=c.outMin+pct*(c.outMax-c.outMin)}
+  else{outV=c.cur;pct=(c.cur-c.outMin)/(c.outMax-c.outMin);inV=c.inMin+pct*(c.inMax-c.inMin)}
+  var ok=pct>=-1e-9&&pct<=1+1e-9,p=pct*100,w=Math.max(0,Math.min(100,p));
+  res.className="res"+(ok?"":" out");
+  res.innerHTML='<div class="rv"><small>'+(fwd?'공정값':'필요한 신호값')+'</small><b>'+fmt(fwd?outV:inV)+'</b><span class="ru">'+esc(fwd?c.unit:mu)+'</span><span class="st'+(ok?'':' out')+'">'+(ok?'범위 안':'범위 벗어남')+'</span></div>'+
+    '<div class="bar"><i style="width:'+w+'%"></i></div>'+
+    '<div class="bt"><span>'+fmt(c.inMin)+' '+mu+'</span><span>'+p.toFixed(1).replace(/\.0$/,'')+'%</span><span>'+fmt(c.inMax)+' '+mu+'</span></div>';
+}
+
+function paintSign(btn,inp){var neg=num(inp.value)<0;btn.classList.toggle("neg",neg);btn.classList.toggle("pos",!neg)}
+
+// 현재값 맞추기: 같은 방향 카드끼리 현재값 공유
+function syncFrom(i){
+  if(!S.sync)return;var src=S.cards[i];
+  S.cards.forEach(function(c,j){if(j===i||c.dir!==src.dir)return;c.cur=src.cur;
+    var el=document.getElementById("cards").children[j];if(!el)return;
+    var inp=el.querySelector('input[data-k="cur"]');if(inp&&document.activeElement!==inp){inp.value=fmtSigned(c.cur);paintSign(inp.nextElementSibling,inp)}
+    calc(el,c)});
+}
+
+function wire(el,c,i){
+  el.querySelectorAll(".signed input").forEach(function(inp){
+    var k=inp.dataset.k,btn=inp.nextElementSibling;paintSign(btn,inp);
+    inp.addEventListener("input",function(){c[k]=num(inp.value);paintSign(btn,inp);calc(el,c);if(k==="cur")syncFrom(i);save()});
+    inp.addEventListener("blur",function(){inp.value=fmtSigned(c[k]);paintSign(btn,inp)});
+    inp.addEventListener("focus",function(){setTimeout(function(){try{inp.select()}catch(e){}},0)});
+    btn.addEventListener("click",function(){c[k]=-c[k];inp.value=fmtSigned(c[k]);paintSign(btn,inp);calc(el,c);if(k==="cur")syncFrom(i);save()});
+  });
+  el.querySelector('[data-k="label"]').addEventListener("input",function(e){c.label=e.target.value;save()});
+  var sum=el.querySelector(".sum");if(sum)sum.addEventListener("click",function(){c.open=true;save();render()});
+  var fold=el.querySelector(".fold");if(fold)fold.addEventListener("click",function(){c.open=false;save();render()});
+  var un=el.querySelector('[data-k="unit"]');if(un)un.addEventListener("input",function(e){c.unit=e.target.value;calc(el,c);
+    var cap=el.querySelector(".hero .cap span");if(c.dir==="rev")cap.textContent="현재 공정값"+(c.unit?" ("+c.unit+")":"");save()});
+  var md=el.querySelector('[data-k="mode"]');if(md)md.addEventListener("change",function(e){c.mode=e.target.value;var m=MODE[c.mode];
+    if(m&&m.min!==null){c.inMin=m.min;c.inMax=m.max}save();render()});
+  el.querySelectorAll(".seg button").forEach(function(b){b.addEventListener("click",function(){if(c.dir===b.dataset.d)return;
+    // 방향을 바꾸면 지금 결과값을 새 현재값으로 넘김 (같은 지점을 반대로 보기)
+    var pct=c.dir==="fwd"?(c.cur-c.inMin)/(c.inMax-c.inMin):(c.cur-c.outMin)/(c.outMax-c.outMin);
+    c.dir=b.dataset.d;if(isFinite(pct))c.cur=Math.round((c.dir==="fwd"?c.inMin+pct*(c.inMax-c.inMin):c.outMin+pct*(c.outMax-c.outMin))*1e4)/1e4;save();render()})});
+  el.querySelector(".dup").addEventListener("click",function(){if(S.cards.length>=MAX)return;var n=JSON.parse(JSON.stringify(c));
+    n.label=(c.label||NAMES[i])+" 복사";S.cards.forEach(function(x){x.open=false});n.open=true;S.cards.splice(i+1,0,n);save();render()});
+  el.querySelector(".rm").addEventListener("click",function(){if(S.cards.length<=1)return;S.cards.splice(i,1);save();render()});
+}
+
+document.getElementById("addBtn").addEventListener("click",function(){
+  if(S.cards.length>=MAX)return;var last=S.cards[S.cards.length-1],n=JSON.parse(JSON.stringify(last));
+  n.label=NAMES[S.cards.length]||"";S.cards.forEach(function(x){x.open=false});n.open=true;S.cards.push(n);save();render();
+  var cs=document.getElementById("cards").children;var el=cs[cs.length-1];if(el)el.scrollIntoView({behavior:"smooth",block:"nearest"});
+});
+document.getElementById("syncBtn").addEventListener("click",function(){
+  S.sync=!S.sync;if(S.sync&&S.cards.length){var f=S.cards[0];S.cards.forEach(function(c){if(c.dir===f.dir)c.cur=f.cur})}save();render();
+});
+
+render();
+</script>
+</body>
+</html>
